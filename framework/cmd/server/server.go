@@ -7,22 +7,15 @@ import (
 	"net/http"
 
 	"github.com/andrewmak/crud_golang/application/repositories"
-	"github.com/andrewmak/crud_golang/domain"
+	"github.com/andrewmak/crud_golang/application/usecases"
+	"github.com/andrewmak/crud_golang/framework/servers"
 	"github.com/andrewmak/crud_golang/framework/utils"
 	"github.com/gorilla/mux"
-	"gopkg.in/mgo.v2/bson"
 )
 
 var BookRepositoryDb = repositories.BookRepositoryDb{}
 var config = utils.Config{}
 
-func init() {
-	config.Read()
-
-	BookRepositoryDb.Server = config.Server
-	BookRepositoryDb.Database = config.Database
-	BookRepositoryDb.Connect()
-}
 func listBooks(w http.ResponseWriter, r *http.Request) {
 	books, err := BookRepositoryDb.GetAll()
 	if err != nil {
@@ -32,39 +25,33 @@ func listBooks(w http.ResponseWriter, r *http.Request) {
 	respondWithJson(w, http.StatusOK, books)
 }
 
-func Create(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	var book *domain.Book
-	if err := json.NewDecoder(r.Body).Decode(&book); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
-		return
-	}
-	book.Id = bson.NewObjectId()
-	if err := BookRepositoryDb.Insert(book); err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondWithJson(w, http.StatusCreated, book)
-}
 func home(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Bem Vindo")
 }
 
 func configureRoutes() *mux.Router {
+	bookServer := setUpBookServer()
 	r := mux.NewRouter()
 	r.HandleFunc("/", home).Methods("GET")
 	r.HandleFunc("/books", listBooks).Methods("GET")
-	r.HandleFunc("/books", Create).Methods("POST")
+	r.HandleFunc("/books", bookServer.CreateBook).Methods("POST")
 	return r
+}
+
+func init() {
+	config.Read()
+
+	BookRepositoryDb.Server = config.Server
+	BookRepositoryDb.Database = config.Database
+	BookRepositoryDb.Connect()
 }
 
 func MiddlewareServer() {
 	r := configureRoutes()
 
-	fmt.Println("Server running in port 1337")
-
-	err := http.ListenAndServe(":1337", r)
-
+	var port = ":3000"
+	fmt.Println("Server running in port:", port)
+	err := http.ListenAndServe(port, r)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -83,4 +70,11 @@ func respondWithJson(w http.ResponseWriter, code int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(response)
+}
+
+func setUpBookServer() *servers.BookServer {
+	bookServer := servers.NewBookServer()
+	bookRepository := repositories.BookRepositoryDb{}
+	bookServer.BookUseCase = usecases.BookUseCase{BookRepositoryDb: bookRepository}
+	return bookServer
 }
